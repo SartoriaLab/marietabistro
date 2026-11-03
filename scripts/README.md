@@ -87,10 +87,10 @@ O arquivo [`sync-menudino.bat`](sync-menudino.bat) é um wrapper que o Task Sche
 
 ## Como funciona a sincronização
 
-1. **Auth**: faz um `GET https://marietabistro.menudino.com/` e extrai o JWT `app-access-token` do header (dura ~24h).
-2. **Merchant**: `GET menudino-merchants.consumerapis.com/api/v1/merchants/{id}` → nome, endereço, telefone, horários.
-3. **Categorias**: `GET menudino-catalog.consumerapis.com/api/v1/categories/{id}?OnlyActive=false` → 22+ categorias (**sem** `SellOnline=true`, que restringiria ao delivery do momento).
-4. **Items por categoria**: `GET .../items/{id}/{categoryId}/summary?SellOnline=false` → items completos com descrição, preço, `largeImageUrl`.
+1. **Acesso**: sem token. Desde nov/2026 o Menudino não expõe mais o `app-access-token`; o front chama um proxy same-origin (`https://marietabistro.menudino.com/api/bff/<serviço>/...`) que injeta a credencial no servidor. Usamos o mesmo proxy.
+2. **Merchant**: `POST /api/merchant-details` com `{"params":{"url":"marietabistro","viewMode":"Detailed"}}` → resposta cifrada em AES-256-CBC (`iv:ciphertext` base64), decifrada com a chave fixa do bundle JS do Menudino → nome, endereço, telefone, horários.
+3. **Categorias**: `GET /api/bff/catalog/categories/{id}?OnlyActive=false` → 30+ categorias (**sem** `SellOnline=true`, que restringiria ao delivery do momento).
+4. **Items por categoria**: `GET /api/bff/catalog/items/{id}/{categoryId}/summary?SellOnline=false` → items completos com descrição, preço, `largeImageUrl`.
 5. **Merge defensivo** com o que já está no Firestore:
    - Preço: sempre atualiza
    - Descrição: só atualiza se a fonte tem valor (preserva se vazia)
@@ -104,7 +104,9 @@ O arquivo [`sync-menudino.bat`](sync-menudino.bat) é um wrapper que o Task Sche
 
 **`HTTP 403` do Menudino** → Cloudflare WAF está bloqueando. Verifique que o `User-Agent` enviado corresponde a um browser real (já está hardcoded no script).
 
-**`Não foi possível obter app-access-token`** → o Menudino pode ter alterado o nome do header/cookie. Rodar `curl -sI https://marietabistro.menudino.com/` e procurar por algum header parecido.
+**`fetchMerchantDetails: falha ao decifrar resposta`** → o Menudino trocou a chave AES. Baixar os bundles `/_next/static/chunks/*.js` da home e procurar por `createDecipheriv("aes-256-cbc"` — a chave fica logo antes (`Buffer.from("...","base64")`). Atualizar `MENUDINO_AES_KEY` aqui e no bookmarklet do c-admin (`src/components/SyncMenudinoModal.jsx`).
+
+**`HTTP 404` em `/api/bff/...`** → o proxy mudou. Procurar `"/api/bff/"` nos bundles JS do Menudino.
 
 **`HTTP 404` em `/categories/`** → URL mudou. Inspecionar o novo endpoint abrindo o DevTools no site do Menudino e olhando a aba Network.
 

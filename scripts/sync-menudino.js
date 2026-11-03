@@ -26,6 +26,7 @@ var https = require('https');
 var admin = require('firebase-admin');
 var path = require('path');
 var fs = require('fs');
+var crypto = require('crypto');
 
 // --- Config ---
 var RESTAURANT_SLUG = 'marieta-bistro';
@@ -33,7 +34,7 @@ var PROJECT = 'cardapio-admin-prod';
 var MERCHANT_ID = '36cf4942-8b65-4d0b-baa5-cf9168b3b4de';
 var MENUDINO_HOME = 'https://marietabistro.menudino.com/';
 var MENUDINO_HOST = 'marietabistro.menudino.com';
-var CATALOG_BASE = 'https://menudino-catalog.consumerapis.com/api/v1';
+var CATALOG_BFF = '/api/bff/catalog';
 var FILES_BASE = 'https://files.menudino.com';
 var CATEGORIAS_IGNORAR = ['Complemento'];
 // Heurística: categorias cujo nome bate com qualquer palavra abaixo vão para a aba "Bebidas"
@@ -80,7 +81,7 @@ function httpsRequest(options, body) {
   });
 }
 
-function browserHeaders(token) {
+function browserHeaders() {
   var h = {
     'User-Agent': USER_AGENT,
     'Origin': 'https://' + MENUDINO_HOST,
@@ -93,232 +94,84 @@ function browserHeaders(token) {
     'sec-ch-ua-platform': '"Windows"',
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'cross-site'
+    'Sec-Fetch-Site': 'same-origin'
   };
-  if (token) h['Authorization'] = 'Bearer ' + token;
   return h;
 }
 
-// --- 1. Autenticação: obter app-access-token via GET na home do Menudino ---
+// --- 1. Acesso ao Menudino ---
+//
+// Desde nov/2026 o Menudino não expõe mais o app-access-token (nem header,
+// nem cookie). O front chama um proxy same-origin (/api/bff/<serviço>/...)
+// que injeta a credencial no servidor — basta chamar o mesmo proxy, sem token.
+// O merchant vem de POST /api/merchant-details, cifrado em AES-256-CBC
+// ("iv:ciphertext" base64) com a chave fixa que está no bundle JS do Menudino.
 
-// Headers que imitam um Chrome real — Cloudflare do Menudino bloqueia requests
-// que não parecem browser (sobretudo de IPs de datacenter como GitHub Actions).
-function browserLikeHomeHeaders() {
-  return {
-    'User-Agent': USER_AGENT,
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Accept-Encoding': 'identity', // forçar plain — evita ter que descomprimir gzip
-    'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache',
-    'Upgrade-Insecure-Requests': '1',
-    'sec-ch-ua': '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1'
-  };
-}
+var MENUDINO_AES_KEY = 'KvP8zW3x+y2nM1qR5jH9kL4bN6cD0fGhE7tY8wS3vA4=';
 
-function tryExtractToken(res) {
-  var token = res.headers['app-access-token'];
-  if (token) return token;
-  // fallback: tenta extrair do set-cookie (URL-encoded JWT)
-  var cookies = res.headers['set-cookie'] || [];
-  for (var i = 0; i < cookies.length; i++) {
-    var m = cookies[i].match(/^app-access-token=([^;]+)/);
-    if (m) return decodeURIComponent(m[1]);
-  }
-  return null;
-}
-
-// Fallback: usa Puppeteer+stealth quando Cloudflare bloqueia https nativo.
-// Só é importado dinamicamente — em runs locais que funcionam com https,
-// puppeteer nem precisa estar instalado.
-async function fetchAppAccessTokenViaBrowser() {
-  console.log('    (fallback) Tentando via browser headless com Puppeteer + stealth...');
-  var puppeteer, StealthPlugin;
-  try {
-    puppeteer = require('puppeteer-extra');
-    StealthPlugin = require('puppeteer-extra-plugin-stealth');
-  } catch (e) {
-    throw new Error('Puppeteer não instalado. Rode: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth');
-  }
-  puppeteer.use(StealthPlugin());
-
-  var browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-  });
-
-  try {
-    var page = await browser.newPage();
-    await page.setUserAgent(USER_AGENT);
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
-    });
-
-    // Intercepta o header response da navegação principal
-    var tokenFromHeader = null;
-    page.on('response', function(resp) {
-      try {
-        if (resp.url() === MENUDINO_HOME || resp.url() === MENUDINO_HOME.replace(/\/$/, '')) {
-          var h = resp.headers();
-          if (h['app-access-token'] && !tokenFromHeader) {
-            tokenFromHeader = h['app-access-token'];
-          }
-        }
-      } catch (e) {}
-    });
-
-    await page.goto(MENUDINO_HOME, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-    // Espera ativa: Cloudflare challenge pode levar 5-10s pra passar.
-    // Loop detectando se ainda estamos na página de challenge.
-    var maxWaitMs = 20000;
-    var start = Date.now();
-    while (Date.now() - start < maxWaitMs) {
-      var title = await page.title().catch(function() { return ''; });
-      var url = page.url();
-      var isCloudflare = /Attention Required|Just a moment|cf-browser-verification/i.test(title) ||
-                         /__cf_chl_|challenges\.cloudflare\.com/.test(url);
-      if (!isCloudflare && tokenFromHeader) break;
-      if (!isCloudflare) {
-        // Passou do challenge mas ainda não pegou token — espera um pouco mais pro header chegar
-        await new Promise(function(r) { setTimeout(r, 1500); });
-        if (tokenFromHeader) break;
-      }
-      await new Promise(function(r) { setTimeout(r, 1000); });
-    }
-
-    // Se ainda não pegou token do header, tenta recarregar (challenge já passou, cookies gravados)
-    if (!tokenFromHeader) {
-      try {
-        await page.reload({ waitUntil: 'domcontentloaded', timeout: 20000 });
-        await new Promise(function(r) { setTimeout(r, 3000); });
-      } catch (e) {}
-    }
-
-    var token = tokenFromHeader;
-
-    if (!token) {
-      // Tenta cookies
-      var cookies = await page.cookies();
-      var tokenCookie = cookies.find(function(c) { return c.name === 'app-access-token'; });
-      if (tokenCookie) token = decodeURIComponent(tokenCookie.value);
-    }
-
-    if (!token) {
-      // Último recurso: se o cookie vem URL-encoded e passou pelo fetch, recupera do header atual
-      var html = await page.content();
-      var m = html.match(/app-access-token["']?\s*[:=]\s*["']?(eyJ[A-Za-z0-9._-]+)/);
-      if (m) token = m[1];
-    }
-
-    if (!token) throw new Error('Token não encontrado nem no header, nem em cookies, nem no HTML após navegação via Puppeteer');
-    return token;
-  } finally {
-    await browser.close();
-  }
-}
-
-async function fetchAppAccessToken() {
-  // 1ª tentativa: https nativo (rápido, funciona local)
-  var res = await httpsRequest({
-    method: 'GET',
+function menudinoRequest(method, pathAndQuery, body) {
+  var headers = browserHeaders();
+  if (body) headers['Content-Type'] = 'application/json';
+  return httpsRequest({
+    method: method,
     hostname: MENUDINO_HOST,
-    path: '/',
-    headers: browserLikeHomeHeaders()
-  });
-  var token = tryExtractToken(res);
-  if (token) return token;
+    path: pathAndQuery,
+    headers: headers
+  }, body);
+}
 
-  // Log de diagnóstico
-  console.error('    (https nativo falhou — HTTP ' + res.statusCode + ')');
-  var bloqueadoPorCloudflare = res.body.indexOf('Attention Required') !== -1 ||
-                                res.body.indexOf('cf-browser-verification') !== -1 ||
-                                res.body.indexOf('__cf_chl_') !== -1;
-  if (bloqueadoPorCloudflare) {
-    console.error('    Cloudflare bloqueou — tentando fallback Puppeteer...');
-  }
-
-  // 2ª tentativa: Puppeteer headless
-  try {
-    var tokenBrowser = await fetchAppAccessTokenViaBrowser();
-    return tokenBrowser;
-  } catch (e) {
-    // Dump diagnóstico completo pra ajudar debug
-    console.error('');
-    console.error('=== DIAGNÓSTICO fetchAppAccessToken ===');
-    console.error('HTTP status (https): ', res.statusCode);
-    console.error('Headers recebidos (https):');
-    Object.keys(res.headers).forEach(function(k) {
-      var v = res.headers[k];
-      if (Array.isArray(v)) v = v.join(' | ');
-      if (typeof v === 'string' && v.length > 300) v = v.slice(0, 300) + '... (truncado)';
-      console.error('  ' + k + ': ' + v);
-    });
-    console.error('Primeiros 500 chars do body (https):');
-    console.error(res.body.slice(0, 500));
-    console.error('Erro Puppeteer:', e.message);
-    console.error('=======================================');
-    throw new Error('Não foi possível obter app-access-token do Menudino (https + puppeteer falharam). Ver log acima.');
-  }
+function decryptMenudino(payload) {
+  var parts = String(payload).split(':');
+  var decipher = crypto.createDecipheriv('aes-256-cbc',
+    Buffer.from(MENUDINO_AES_KEY, 'base64'), Buffer.from(parts[0], 'base64'));
+  return decipher.update(parts[1], 'base64', 'utf8') + decipher.final('utf8');
 }
 
 // --- 2. Fetch de categorias ---
 
-function fetchCategories(token) {
+function fetchCategories() {
   // SEM SellOnline=true — esse filtro restringe ao que o delivery serve AGORA.
   // Usamos OnlyActive=false para garantir o catálogo completo.
-  var url = CATALOG_BASE + '/categories/' + MERCHANT_ID + '?OnlyActive=false';
-  var u = new URL(url);
-  return httpsRequest({
-    method: 'GET',
-    hostname: u.hostname,
-    path: u.pathname + u.search,
-    headers: browserHeaders(token)
-  }).then(function(res) {
-    if (res.statusCode !== 200) {
-      throw new Error('fetchCategories HTTP ' + res.statusCode + ': ' + res.body.slice(0, 200));
-    }
-    var data = JSON.parse(res.body);
-    return data.items || [];
-  });
+  return menudinoRequest('GET', CATALOG_BFF + '/categories/' + MERCHANT_ID + '?OnlyActive=false')
+    .then(function(res) {
+      if (res.statusCode !== 200) {
+        throw new Error('fetchCategories HTTP ' + res.statusCode + ': ' + res.body.slice(0, 200));
+      }
+      var data = JSON.parse(res.body);
+      return data.items || [];
+    });
 }
 
 // --- 3a. Fetch de detalhes do merchant (para businessInfo) ---
 
-function fetchMerchantDetails(token) {
-  var url = 'https://menudino-merchants.consumerapis.com/api/v1/merchants/' + MERCHANT_ID;
-  var u = new URL(url);
-  return httpsRequest({
-    method: 'GET',
-    hostname: u.hostname,
-    path: u.pathname + u.search,
-    headers: browserHeaders(token)
-  }).then(function(res) {
+function fetchMerchantDetails() {
+  var body = JSON.stringify({
+    params: { url: MENUDINO_HOST.split('.')[0], viewMode: 'Detailed' },
+    isAppAndroidOrIOS: false
+  });
+  return menudinoRequest('POST', '/api/merchant-details', body).then(function(res) {
     if (res.statusCode !== 200) {
       throw new Error('fetchMerchantDetails HTTP ' + res.statusCode + ': ' + res.body.slice(0, 200));
     }
-    return JSON.parse(res.body);
+    var merchant;
+    try {
+      merchant = JSON.parse(decryptMenudino(JSON.parse(res.body)));
+    } catch (e) {
+      throw new Error('fetchMerchantDetails: falha ao decifrar resposta (chave AES pode ter mudado): ' + e.message);
+    }
+    if (merchant.id !== MERCHANT_ID) {
+      throw new Error('fetchMerchantDetails: merchant inesperado (' + merchant.id + ')');
+    }
+    return merchant;
   });
 }
 
 // --- 3b. Fetch de items de uma categoria ---
 
-function fetchItems(token, categoryId) {
+function fetchItems(categoryId) {
   // SellOnline=false é a chave: com true, muitos itens ficam ocultos.
-  var url = CATALOG_BASE + '/items/' + MERCHANT_ID + '/' + categoryId + '/summary?SellOnline=false';
-  var u = new URL(url);
-  return httpsRequest({
-    method: 'GET',
-    hostname: u.hostname,
-    path: u.pathname + u.search,
-    headers: browserHeaders(token)
-  }).then(function(res) {
+  var p = CATALOG_BFF + '/items/' + MERCHANT_ID + '/' + categoryId + '/summary?SellOnline=false';
+  return menudinoRequest('GET', p).then(function(res) {
     if (res.statusCode !== 200) {
       throw new Error('fetchItems HTTP ' + res.statusCode + ' cat=' + categoryId + ': ' + res.body.slice(0, 200));
     }
@@ -728,19 +581,15 @@ async function run() {
   console.log('Projeto: ' + PROJECT);
   console.log('');
 
-  console.log('1/6 Obtendo app-access-token...');
-  var token = await fetchAppAccessToken();
-  console.log('    OK (token len=' + token.length + ')');
-
-  console.log('2/6 Buscando merchant details (businessInfo)...');
-  var merchant = await fetchMerchantDetails(token);
+  console.log('1/5 Buscando merchant details (businessInfo)...');
+  var merchant = await fetchMerchantDetails();
   console.log('    OK: ' + merchant.name + ' — ' + (merchant.address && merchant.address.city));
 
-  console.log('3/6 Buscando categorias do Menudino...');
-  var categories = await fetchCategories(token);
+  console.log('2/5 Buscando categorias do Menudino...');
+  var categories = await fetchCategories();
   console.log('    ' + categories.length + ' categorias retornadas');
 
-  console.log('4/6 Buscando items de cada categoria...');
+  console.log('3/5 Buscando items de cada categoria...');
   var itemsByCategoryId = {};
   var totalItems = 0;
   for (var i = 0; i < categories.length; i++) {
@@ -748,7 +597,7 @@ async function run() {
     // pequeno delay para ser gentil com a API
     if (i > 0) await new Promise(function(r) { setTimeout(r, 100); });
     try {
-      var items = await fetchItems(token, cat.id);
+      var items = await fetchItems(cat.id);
       itemsByCategoryId[cat.id] = items;
       totalItems += items.length;
       process.stdout.write('    [' + (i + 1) + '/' + categories.length + '] ' + cat.name + ': ' + items.length + ' items\n');
@@ -759,7 +608,7 @@ async function run() {
   }
   console.log('    Total: ' + totalItems + ' items');
 
-  console.log('5/6 Convertendo e fazendo merge com Firestore...');
+  console.log('4/5 Convertendo e fazendo merge com Firestore...');
   var cardapioNovo = converterMenudino(categories, itemsByCategoryId);
   var businessInfoNovo = converterBusinessInfo(merchant);
 
@@ -785,7 +634,7 @@ async function run() {
   var stats = merged.stats;
   var businessInfoMerged = mergeBusinessInfo(businessInfoAtual, businessInfoNovo);
 
-  console.log('6/6 Escrevendo no Firestore...');
+  console.log('5/5 Escrevendo no Firestore...');
   await docRef.set({
     content: merged.cardapio,
     updatedAt: new Date().toISOString()
