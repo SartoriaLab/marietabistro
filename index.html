@@ -3366,10 +3366,19 @@
 
 
 
+    var placeholderSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/></svg>';
+
+    // Fallback: foto do Menudino que não carrega (ex.: 404 após troca de arquivos)
+    // vira o placeholder padrão em vez de ícone de imagem quebrada.
+    document.getElementById('menuPanels').addEventListener('error', function(e) {
+      var img = e.target;
+      if (!img || img.tagName !== 'IMG' || !img.parentNode || !img.parentNode.classList.contains('menu-item-image')) return;
+      img.parentNode.innerHTML = '<div class="menu-item-placeholder">' + placeholderSvg + '</div>';
+    }, true);
+
     function renderCardapio(cardapioData) {
       var tabsContainer = document.getElementById('menuTabs');
       var panelsContainer = document.getElementById('menuPanels');
-      var placeholderSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/></svg>';
 
       // Build tabs
       var tabsHtml = '';
