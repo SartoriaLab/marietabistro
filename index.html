@@ -2248,45 +2248,92 @@
       bottom: 104px;
       right: 28px;
       z-index: 999;
-      height: 52px;
-      padding: 0 22px 0 18px;
-      background: var(--wine);
-      color: var(--cream);
-      border: 1px solid rgba(246, 241, 223, 0.35);
-      border-radius: 999px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+      padding: 7px 20px 7px 7px;
+      background: var(--wine);
+      color: var(--cream);
+      border: 1.5px solid var(--cream);
+      border-radius: 999px;
       font-family: var(--font-body);
-      font-size: 0.8rem;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
       text-decoration: none;
-      box-shadow: 0 4px 24px rgba(3, 36, 57, 0.45);
-      transition: all 0.3s var(--ease-out);
+      box-shadow: 0 6px 28px rgba(3, 36, 57, 0.5);
+      transition: transform 0.3s var(--ease-out), box-shadow 0.3s var(--ease-out), background 0.3s var(--ease-out);
+      animation: deliveryNudge 6s ease-in-out 2s infinite;
+    }
+    .delivery-float::before {
+      content: '';
+      position: absolute;
+      inset: -1.5px;
+      border-radius: inherit;
+      border: 2px solid var(--cream);
+      opacity: 0;
+      animation: deliveryRing 2.4s ease-out infinite;
+      pointer-events: none;
     }
     .delivery-float:hover {
-      transform: translateY(-2px);
+      transform: translateY(-3px) scale(1.03);
       background: var(--wine-light);
-      box-shadow: 0 6px 32px rgba(3, 36, 57, 0.6);
+      box-shadow: 0 10px 36px rgba(3, 36, 57, 0.6);
+      animation-play-state: paused;
     }
-    .delivery-float svg {
-      width: 22px; height: 22px;
+    .delivery-float-icon {
+      width: 42px; height: 42px;
       flex-shrink: 0;
+      border-radius: 50%;
+      background: var(--cream);
+      color: var(--wine);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .delivery-float-icon svg {
+      width: 26px; height: 26px;
       fill: none;
       stroke: currentColor;
       stroke-width: 1.8;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
+    .delivery-float-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
+    }
+    .delivery-float-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .delivery-float-sub {
+      font-size: 0.7rem;
+      letter-spacing: 0.4px;
+      opacity: 0.85;
+    }
+    @keyframes deliveryRing {
+      0% { opacity: 0.6; transform: scale(1); }
+      100% { opacity: 0; transform: scale(1.18, 1.45); }
+    }
+    @keyframes deliveryNudge {
+      0%, 88%, 100% { transform: translateY(0) rotate(0); }
+      91% { transform: translateY(-4px) rotate(-3deg); }
+      94% { transform: translateY(-4px) rotate(3deg); }
+      97% { transform: translateY(0) rotate(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .delivery-float, .delivery-float::before { animation: none; }
+    }
     @media (max-width: 640px) {
       .delivery-float {
         bottom: 100px;
-        height: 48px;
-        padding: 0 18px 0 14px;
-        font-size: 0.72rem;
+        gap: 10px;
+        padding: 6px 16px 6px 6px;
       }
+      .delivery-float-icon { width: 38px; height: 38px; }
+      .delivery-float-icon svg { width: 23px; height: 23px; }
+      .delivery-float-title { font-size: 0.88rem; }
+      .delivery-float-sub { font-size: 0.66rem; }
     }
 
     /* ===== RESPONSIVE ===== */
@@ -3023,8 +3070,13 @@
 
   <!-- ===== DELIVERY FLUTUANTE (Menudino) ===== -->
   <a id="delivery-float-btn" href="https://marietabistro.menudino.com" target="_blank" rel="noopener" class="delivery-float" aria-label="Peça delivery pelo cardápio online" data-goatcounter-click="delivery-float" data-goatcounter-title="Botão flutuante Delivery (Menudino)">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
-    <span>Delivery</span>
+    <span class="delivery-float-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><circle cx="5.5" cy="17" r="2.5"/><circle cx="18.5" cy="17" r="2.5"/><path d="M8 17h6.5l2-6.5H19"/><path d="M15 5h2.5l1 5.5"/><path d="M3 13.5h7l1.5 3.5"/><rect x="3" y="7" width="6" height="5" rx="1"/></svg>
+    </span>
+    <span class="delivery-float-text">
+      <span class="delivery-float-title">Peça delivery</span>
+      <span class="delivery-float-sub">Cardápio online &rarr;</span>
+    </span>
   </a>
 
   <!-- ===== LIGHTBOX ===== -->
