@@ -1079,6 +1079,15 @@
     .gallery-item:nth-child(4) {
       aspect-ratio: 1;
     }
+    /* Último item fecha a linha (3 colunas) ocupando 2 células */
+    .gallery-item:last-child {
+      grid-column: span 2;
+      aspect-ratio: auto;
+    }
+    .gallery-item:last-child img {
+      position: absolute;
+      inset: 0;
+    }
 
     /* Lightbox */
     .lightbox {
@@ -2378,6 +2387,8 @@
       .gallery-grid { grid-template-columns: 1fr 1fr; }
       .gallery-item:nth-child(1) { grid-column: span 2; }
       .gallery-item:nth-child(2) { grid-row: auto; }
+      .gallery-item:last-child { grid-column: auto; aspect-ratio: 1; }
+      .gallery-item:last-child img { position: static; }
 
       .instagram-grid { grid-template-columns: repeat(3, 1fr); }
       .hours-grid { flex-wrap: wrap; }
@@ -2454,13 +2465,13 @@
 
   <!-- ===== PRELOADER ===== -->
   <div class="preloader" id="preloader">
-    <div class="preloader-logo"><img src="imagens/logo-marieta.webp" alt="Marieta Bistrô & Buffet" class="preloader-logo-img"></div>
+    <div class="preloader-logo"><img src="imagens/logo-marieta.webp" alt="Marieta Bistrô" class="preloader-logo-img"></div>
     <div class="preloader-bar"></div>
   </div>
 
   <!-- ===== HEADER ===== -->
   <header class="header" id="header">
-    <a href="#" class="header-logo"><img src="imagens/logo-marieta.webp" alt="Marieta Bistrô & Buffet" class="header-logo-img"></a>
+    <a href="#" class="header-logo"><img src="imagens/logo-marieta.webp" alt="Marieta Bistrô" class="header-logo-img"></a>
     <nav class="header-nav" id="nav">
       <a href="#sobre" data-section="sobre">Sobre</a>
       <a href="#cardapio" data-section="cardapio">Cardápio</a>
@@ -2732,6 +2743,9 @@
           <img src="imagens/Galeria/15%20de%20Janeiro%20(1).webp" alt="Marieta Bistrô" loading="lazy">
         </div>
         <div class="gallery-item reveal reveal-delay-1" onclick="openLightbox(this)">
+          <img src="imagens/ambiente/area-externa-jardim.webp" alt="Área externa do Marieta Bistrô com mesas sob ombrelones no jardim" loading="lazy">
+        </div>
+        <div class="gallery-item reveal reveal-delay-1" onclick="openLightbox(this)">
           <img src="imagens/Galeria/15%20de%20Janeiro%20(4).webp" alt="Marieta Bistrô" loading="lazy">
         </div>
         <div class="gallery-item reveal reveal-delay-2" onclick="openLightbox(this)">
@@ -2775,6 +2789,18 @@
         </div>
         <div class="gallery-item reveal reveal-delay-3" onclick="openLightbox(this)">
           <img src="imagens/Galeria/15%20de%20Mar%C3%A7o%20(14).webp" alt="Marieta Bistrô" loading="lazy">
+        </div>
+        <div class="gallery-item reveal" onclick="openLightbox(this)">
+          <img src="imagens/ambiente/area-externa-mesa.webp" alt="Mesa redonda com ombrelone na área externa do Marieta Bistrô" loading="lazy">
+        </div>
+        <div class="gallery-item reveal reveal-delay-1" onclick="openLightbox(this)">
+          <img src="imagens/ambiente/area-externa-cadeira.webp" alt="Detalhe das cadeiras da área externa do Marieta Bistrô" loading="lazy">
+        </div>
+        <div class="gallery-item reveal reveal-delay-2" onclick="openLightbox(this)">
+          <img src="imagens/ambiente/area-externa-entardecer.webp" alt="Área externa do Marieta Bistrô ao entardecer" loading="lazy">
+        </div>
+        <div class="gallery-item reveal reveal-delay-3" onclick="openLightbox(this)">
+          <img src="imagens/ambiente/area-externa-noite.webp" alt="Área externa do Marieta Bistrô iluminada à noite" loading="lazy">
         </div>
       </div>
     </div>
@@ -3029,7 +3055,7 @@
     <div class="container">
       <div class="footer-top">
         <div>
-          <img src="imagens/logo-marieta.webp" alt="Marieta Bistrô & Buffet" class="footer-logo">
+          <img src="imagens/logo-marieta.webp" alt="Marieta Bistrô" class="footer-logo">
           <p class="footer-tagline">Gastronomia clássica em um casarão centenário no coração de Taquaritinga.</p>
         </div>
         <div class="footer-links">
